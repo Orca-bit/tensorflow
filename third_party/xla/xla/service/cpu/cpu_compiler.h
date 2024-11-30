@@ -234,6 +234,8 @@ class CpuCompiler : public LLVMCompiler {
       HloModule* module, bool is_aot_compile,
       LLVMTargetMachineFeatures* target_machine_features, bool is_mlir_compile);
 
+  Status LoweringHloToBisheng(const std::unique_ptr<HloModule>& hloModule);
+
   StatusOr<std::unique_ptr<CpuExecutable>> CompileLegacyCpuExecutable(
       std::unique_ptr<HloModule> module);
 

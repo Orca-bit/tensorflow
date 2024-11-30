@@ -1312,19 +1312,31 @@ std::vector<ComputationToEmit> SubcomputationEmissionOrder(
 
 }  // namespace
 
-static Status LoweringHlo(const std::unique_ptr<HloModule>& module) {
+Status CpuCompiler::LoweringHloToBisheng(const std::unique_ptr<HloModule>& hloModule) {
+  // some code about buffer assignment from `CompileXlaRuntimeCpuExecutable`
+  TF_ASSIGN_OR_RETURN(HloSchedule schedule,
+                      ScheduleModule(hloModule.get(), BufferSizeBytesFunction(),
+                                     ComputationSchedulerToModuleScheduler(
+                                         DFSMemoryScheduler)));
+  TF_ASSIGN_OR_RETURN(
+      std::unique_ptr<BufferAssignment> assignment,
+      BufferAssigner::Run(hloModule.get(),
+                          std::make_unique<SequentialHloOrdering>(schedule),
+                          BufferSizeBytesFunction(), memory_alignment,
+                          /*allocate_buffers_for_constants=*/true));
+  VLOG(1) << "Buffer Assignment Stats for " << hloModule->name() << "\n"
+          << assignment->GetStats().ToString();
   // create dialect registry
   mlir::DialectRegistry dialects;
   RegisterHloXlaRuntimePipelineDialects(dialects);
   mlir::MLIRContext mlirContext(dialects);
   LoadMLIRDialects(mlirContext);
-
   // convert hlo to mhlo
-  mlir::OwningOpRef<mlir::ModuleOp> mlirModule = llvm_ir::CreateMlirModuleOp(
-      mlir::Builder(&mlirContext).getUnknownLoc(), module->name());
-  TF_RETURN_IF_ERROR(ConvertHloToMlirHlo(*mlirModule, module.get()));
+  TF_ASSIGN_OR_RETURN(
+      auto mlirModule,
+      createMLIRModule(hloModule.get(), mlirContext, assignment.get()));
   // dump mhlo IR
-  DumpToFileInDirOrStdout(*module, "mhlo", mlirModule.get());
+  DumpToFileInDirOrStdout(*hloModule, "mhlo", mlirModule.get());
   // lower mhlo to linalg
   mlir::PassManager pm(&mlirContext);
   runtime::PassManager xlaPm(&pm);
@@ -1334,7 +1346,7 @@ static Status LoweringHlo(const std::unique_ptr<HloModule>& module) {
     return InternalError("");
   }
   // dump linalg
-  DumpToFileInDirOrStdout(*module, "linalg", mlirModule.get());
+  DumpToFileInDirOrStdout(*hloModule, "linalg", mlirModule.get());
   return OkStatus();
 }
 
@@ -1603,7 +1615,7 @@ StatusOr<std::unique_ptr<Executable>> CpuCompiler::RunBackend(
                         CompileXlaRuntimeCpuExecutable(std::move(module)));
   } else {
     // lowering mlir
-    TF_RETURN_IF_ERROR(LoweringHlo(module));
+    TF_RETURN_IF_ERROR(LoweringHloToBisheng(module));
     TF_ASSIGN_OR_RETURN(cpu_executable,
                         CompileLegacyCpuExecutable(std::move(module)));
   }
