@@ -1312,6 +1312,32 @@ std::vector<ComputationToEmit> SubcomputationEmissionOrder(
 
 }  // namespace
 
+static Status LoweringHlo(const std::unique_ptr<HloModule>& module) {
+  // create dialect registry
+  mlir::DialectRegistry dialects;
+  RegisterHloXlaRuntimePipelineDialects(dialects);
+  mlir::MLIRContext mlirContext(dialects);
+  LoadMLIRDialects(mlirContext);
+
+  // convert hlo to mhlo
+  mlir::OwningOpRef<mlir::ModuleOp> mlirModule = llvm_ir::CreateMlirModuleOp(
+      mlir::Builder(&mlirContext).getUnknownLoc(), module->name());
+  TF_RETURN_IF_ERROR(ConvertHloToMlirHlo(*mlirModule, module.get()));
+  // dump mhlo IR
+  DumpToFileInDirOrStdout(*module, "mhlo", mlirModule.get());
+  // lower mhlo to linalg
+  mlir::PassManager pm(&mlirContext);
+  runtime::PassManager xlaPm(&pm);
+  TF_RETURN_IF_ERROR(CreateDefaultHloXlaRuntimePipeline(xlaPm));
+  if (failed(pm.run(*mlirModule))) {
+    LOG(FATAL) << "Lower mhlo to linalg pass pipeline failed.";
+    return InternalError("");
+  }
+  // dump linalg
+  DumpToFileInDirOrStdout(*module, "linalg", mlirModule.get());
+  return OkStatus();
+}
+
 StatusOr<std::unique_ptr<CpuExecutable>>
 CpuCompiler::CompileLegacyCpuExecutable(std::unique_ptr<HloModule> module) {
   ModuleHook pre_optimization_ir_hook;
@@ -1576,6 +1602,8 @@ StatusOr<std::unique_ptr<Executable>> CpuCompiler::RunBackend(
     TF_ASSIGN_OR_RETURN(cpu_executable,
                         CompileXlaRuntimeCpuExecutable(std::move(module)));
   } else {
+    // lowering mlir
+    TF_RETURN_IF_ERROR(LoweringHlo(module));
     TF_ASSIGN_OR_RETURN(cpu_executable,
                         CompileLegacyCpuExecutable(std::move(module)));
   }
