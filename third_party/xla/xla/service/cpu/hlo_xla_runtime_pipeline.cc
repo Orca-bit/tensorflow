@@ -139,6 +139,43 @@ void AddSparsificationPassPipeline(mlir::OpPassManager& pm) {
 // Assemble a HLO XLA Runtime pipeline to lower from HLO to Linalg on buffers.
 // -------------------------------------------------------------------------- //
 
+static Status CreateMhloToBishengPipeline(mlir::OpPassManager& pm) {
+  pm.addPass(mlir::createInlinerPass());
+  pm.addPass(mlir::mhlo::createExpandHloTuplesPass("main"));
+  // TODO(b/233771980): Remove once custom_call doesn't use tuples.
+  pm.addNestedPass<mlir::func::FuncOp>(mlir::mhlo::createFlattenTuplePass());
+  pm.addPass(createXlaAbiLegalizationPass());
+  pm.addNestedPass<mlir::func::FuncOp>(
+      mlir::mhlo::createLegalizeGeneralDotPass());
+  pm.addNestedPass<mlir::func::FuncOp>(
+      mlir::mhlo::createBroadcastPropagationPass());
+  pm.addPass(mlir::createCSEPass());
+  pm.addPass(mlir::createCanonicalizerPass());
+
+  // Transform HLO operations to Linalg.
+  pm.addNestedPass<mlir::func::FuncOp>(
+      mlir::mhlo::createLegalizeControlFlowPass());
+  pm.addNestedPass<FuncOp>(mlir::mhlo::createLegalizeDotGeneralToDotPass());
+  pm.addPass(::mlir::mhlo::createLegalizeToArithmeticPass());
+  pm.addNestedPass<mlir::func::FuncOp>(
+      xla::cpu::createLegalizeLibraryOpsPass());
+  pm.addNestedPass<mlir::func::FuncOp>(
+      mlir::mhlo::createMhloExpandOpsSimplifierPass());
+  pm.addNestedPass<mlir::func::FuncOp>(
+      mlir::mhlo::createHloCanonicalizeScatterPass());
+  pm.addNestedPass<FuncOp>(mlir::mhlo::createHloCanonicalizeDotPass());
+  pm.addNestedPass<FuncOp>(mlir::mhlo::createGroupReductionDimensionsPass());
+  pm.addNestedPass<mlir::func::FuncOp>(
+      mlir::mhlo::createLegalizeMHLOToTHLOPass());
+  pm.addNestedPass<mlir::func::FuncOp>(
+      mlir::mhlo::createLegalizeHloToLinalgPass(true));
+  return OkStatus();
+}
+
+Status CreateHloToBishengPipeline(xla::runtime::PassManager& passes) {
+  return CreateMhloToBishengPipeline(*passes);
+}
+
 static Status CreateHloXlaPipeline(
     mlir::OpPassManager& pm, const HloXlaRuntimePipelineOptions& options) {
   // Resolve all shape constraints (e.g. broadcast constraints that can be

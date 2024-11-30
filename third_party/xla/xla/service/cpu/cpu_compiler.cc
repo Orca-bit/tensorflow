@@ -1340,7 +1340,7 @@ Status CpuCompiler::LoweringHloToBisheng(const std::unique_ptr<HloModule>& hloMo
   // lower mhlo to linalg
   mlir::PassManager pm(&mlirContext);
   runtime::PassManager xlaPm(&pm);
-  TF_RETURN_IF_ERROR(CreateDefaultHloXlaRuntimePipeline(xlaPm));
+  TF_RETURN_IF_ERROR(CreateHloToBishengPipeline(xlaPm));
   if (failed(pm.run(*mlirModule))) {
     LOG(FATAL) << "Lower mhlo to linalg pass pipeline failed.";
     return InternalError("");

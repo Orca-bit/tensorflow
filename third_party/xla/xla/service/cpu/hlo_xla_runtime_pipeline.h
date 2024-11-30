@@ -49,6 +49,9 @@ Status CreateHloXlaRuntimePipeline(xla::runtime::PassManager& passes,
                                    const HloXlaRuntimePipelineOptions& options);
 Status CreateDefaultHloXlaRuntimePipeline(xla::runtime::PassManager& passes);
 
+// HLO to Bisheng
+Status CreateHloToBishengPipeline(xla::runtime::PassManager& passes);
+
 void RegisterHloXlaRuntimePipelineDialects(mlir::DialectRegistry& dialects);
 }  // namespace cpu
 }  // namespace xla
