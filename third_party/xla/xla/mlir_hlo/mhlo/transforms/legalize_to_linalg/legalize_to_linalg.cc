@@ -4276,12 +4276,13 @@ class DotGeneralOpConversion : public OpConversionPattern<mhlo::DotGeneralOp> {
   }
 };
 
-/// convert `mhlo.add` to `linalg.add`
-class AddConverter : public OpConversionPattern<mhlo::AddOp> {
+/// convert `mhlo` elementwise op to `linalg` elementwise op
+template <typename MhloOp, typename LinalgOp>
+class ElementWiseConverter : public OpConversionPattern<MhloOp> {
 public:
-  using OpConversionPattern<mhlo::AddOp>::OpConversionPattern;
+  using OpConversionPattern<MhloOp>::OpConversionPattern;
   LogicalResult
-  matchAndRewrite(AddOp op, OpAdaptor adaptor,
+  matchAndRewrite(MhloOp op, typename MhloOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto loc = op.getLoc();
     int64_t maxRank = getMaxRank(adaptor);
@@ -4318,7 +4319,7 @@ public:
         getEmptyTensorFor(rewriter, loc, *resultTy, op, adaptor.getOperands());
     Value zeroTensor = fillTensorWithZeros(rewriter, loc, emptyTensor);
 
-    auto newAddOp = rewriter.create<linalg::AddOp>(
+    auto newAddOp = rewriter.create<LinalgOp>(
         loc, *resultTy, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
         ValueRange{zeroTensor}, linalg::getPrunedAttributeList(op));
     rewriter.replaceOp(op, newAddOp.getResults());
@@ -4331,7 +4332,7 @@ private:
     return v.getType().cast<ShapedType>().getRank();
   }
 
-  int64_t getMaxRank(mhlo::AddOp::Adaptor adaptor) const {
+  int64_t getMaxRank(typename MhloOp::Adaptor adaptor) const {
     int64_t maxRank = 0;
     for (auto operand : adaptor.getOperands()) {
       maxRank = std::max(maxRank, getRank(operand));
@@ -4554,8 +4555,10 @@ void populateHloToLinalgConversionPattern(MLIRContext* context,
       IotaToMapConverter<mhlo::DynamicIotaOp>,
       MapOpToMapConverter,
       PointwiseToLinalgMapConverter<mhlo::AbsOp>,
+      // PointwiseToLinalgMapConverter<mhlo::AbsOp>,
       // PointwiseToLinalgMapConverter<mhlo::AddOp>,
-      AddConverter,
+      ElementWiseConverter<mhlo::AbsOp, linalg::AbsOp>,
+      ElementWiseConverter<mhlo::AddOp, linalg::AddOp>,
       PointwiseToLinalgMapConverter<mhlo::AndOp>,
       PointwiseToLinalgMapConverter<mhlo::Atan2Op>,
       PointwiseToLinalgMapConverter<mhlo::BitcastConvertOp>,
