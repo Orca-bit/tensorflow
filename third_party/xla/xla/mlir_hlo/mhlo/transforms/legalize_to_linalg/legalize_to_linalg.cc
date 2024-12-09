@@ -4279,6 +4279,7 @@ class DotGeneralOpConversion : public OpConversionPattern<mhlo::DotGeneralOp> {
 /// convert `mhlo.add` to `linalg.add`
 class AddConverter : public OpConversionPattern<mhlo::AddOp> {
 public:
+  using OpConversionPattern<mhlo::AddOp>::OpConversionPattern;
   LogicalResult
   matchAndRewrite(AddOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -4314,7 +4315,7 @@ public:
       return failure();
 
     auto newAddOp =
-        rewriter.create<linalg::AddOp>(loc, resultTy, adaptor.getOperands(),
+        rewriter.create<linalg::AddOp>(loc, *resultTy, adaptor.getOperands(),
                                        linalg::getPrunedAttributeList(op));
     rewriter.replaceOp(op, newAddOp.getResults());
 
