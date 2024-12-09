@@ -4276,6 +4276,65 @@ class DotGeneralOpConversion : public OpConversionPattern<mhlo::DotGeneralOp> {
   }
 };
 
+/// convert `mhlo.add` to `linalg.add`
+class AddConverter : public OpConversionPattern<mhlo::AddOp> {
+public:
+  LogicalResult
+  matchAndRewrite(AddOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto loc = op.getLoc();
+    int64_t maxRank = getMaxRank(adaptor);
+
+    // Apply only if all operands are scalar or have the same rank. Some ops,
+    // like `mhlo.select`, support implicit broadcasting of scalars.
+    if (!llvm::all_of(adaptor.getOperands(), [&](Value v) {
+          int64_t r = getRank(v);
+          return r == 0 || r == maxRank;
+        })) {
+      return rewriter.notifyMatchFailure(
+          op, "Operands must be of same rank or scalar.");
+    }
+
+    // Find result type, if on tensors.
+    std::optional<ShapedType> resultTy;
+    resultTy = this->typeConverter->convertType(op->getResultTypes().front())
+                   .template dyn_cast<ShapedType>();
+
+    // Check result type compatibility.
+    if (!resultTy || !resultTy->hasRank() || resultTy->getRank() != maxRank ||
+        !(resultTy->getElementType().isSignlessIntOrFloat() ||
+          resultTy->getElementType().isa<ComplexType>())) {
+      return rewriter.notifyMatchFailure(
+          op, "mismatched operand/result types or iterator count");
+    }
+
+    // All-scalar pointwise ops inside of linalg ops are processes by
+    // ScalarHloToArithmeticPattern.
+    if (maxRank == 0 && isInBodyOfLinalgOps(op))
+      return failure();
+
+    auto newAddOp =
+        rewriter.create<linalg::AddOp>(loc, resultTy, adaptor.getOperands(),
+                                       linalg::getPrunedAttributeList(op));
+    rewriter.replaceOp(op, newAddOp.getResults());
+
+    return success();
+  }
+
+private:
+  int64_t getRank(Value v) const {
+    return v.getType().cast<ShapedType>().getRank();
+  }
+
+  int64_t getMaxRank(mhlo::AddOp::Adaptor adaptor) const {
+    int64_t maxRank = 0;
+    for (auto operand : adaptor.getOperands()) {
+      maxRank = std::max(maxRank, getRank(operand));
+    }
+    return maxRank;
+  }
+};
+
 /// Converts a HLO operation to a linalg.map op that contains the corresponding
 /// scalar operations.
 template <typename OpTy>
@@ -4490,7 +4549,8 @@ void populateHloToLinalgConversionPattern(MLIRContext* context,
       IotaToMapConverter<mhlo::DynamicIotaOp>,
       MapOpToMapConverter,
       PointwiseToLinalgMapConverter<mhlo::AbsOp>,
-      PointwiseToLinalgMapConverter<mhlo::AddOp>,
+      // PointwiseToLinalgMapConverter<mhlo::AddOp>,
+      AddConverter,
       PointwiseToLinalgMapConverter<mhlo::AndOp>,
       PointwiseToLinalgMapConverter<mhlo::Atan2Op>,
       PointwiseToLinalgMapConverter<mhlo::BitcastConvertOp>,
