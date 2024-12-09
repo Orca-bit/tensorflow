@@ -4314,9 +4314,13 @@ public:
     if (maxRank == 0 && isInBodyOfLinalgOps(op))
       return failure();
 
-    auto newAddOp =
-        rewriter.create<linalg::AddOp>(loc, *resultTy, adaptor.getOperands(),
-                                       linalg::getPrunedAttributeList(op));
+    auto emptyTensor =
+        getEmptyTensorFor(rewriter, loc, *resultTy, op, adaptor.getOperands());
+    Value zeroTensor = fillTensorWithZeros(rewriter, loc, emptyTensor);
+
+    auto newAddOp = rewriter.create<linalg::AddOp>(
+        loc, *resultTy, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
+        ValueRange{zeroTensor}, linalg::getPrunedAttributeList(op));
     rewriter.replaceOp(op, newAddOp.getResults());
 
     return success();
