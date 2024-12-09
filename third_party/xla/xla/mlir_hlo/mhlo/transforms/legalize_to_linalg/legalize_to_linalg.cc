@@ -4325,15 +4325,12 @@ public:
     Value zeroTensor = fillTensorWithZeros(rewriter, loc, emptyTensor);
 
     ValueRange inputs;
-    switch (OpType) {
-    case ElementwiseType::kBinary: {
+    if constexpr (OpType == ElementwiseType::kUnary) {
+      inputs = ValueRange{adaptor.getOprand()};
+    } else if constexpr (OpType == ElementwiseType::kBinary) {
       inputs = ValueRange{adaptor.getLhs(), adaptor.getRhs()};
-      break;
-    }
-    case ElementwiseType::kUnary: {
-      inputs = ValueRange{adaptor.getOperand()};
-      break;
-    }
+    } else {
+      return failure();
     }
 
     auto newAddOp = rewriter.create<LinalgOp>(
