@@ -4276,8 +4276,13 @@ class DotGeneralOpConversion : public OpConversionPattern<mhlo::DotGeneralOp> {
   }
 };
 
+enum class ElementwiseType {
+  kUnary,
+  kBinary,
+};
+
 /// convert `mhlo` elementwise op to `linalg` elementwise op
-template <typename MhloOp, typename LinalgOp>
+template <ElementwiseType OpType, typename MhloOp, typename LinalgOp>
 class ElementWiseConverter : public OpConversionPattern<MhloOp> {
 public:
   using OpConversionPattern<MhloOp>::OpConversionPattern;
@@ -4319,9 +4324,21 @@ public:
         getEmptyTensorFor(rewriter, loc, *resultTy, op, adaptor.getOperands());
     Value zeroTensor = fillTensorWithZeros(rewriter, loc, emptyTensor);
 
+    ValueRange inputs;
+    switch (OpType) {
+    case ElementwiseType::kBinary: {
+      inputs = ValueRange{adaptor.getLhs(), adaptor.getRhs()};
+      break;
+    }
+    case ElementwiseType::kUnary: {
+      inputs = ValueRange{adaptor.getOperand()};
+      break;
+    }
+    }
+
     auto newAddOp = rewriter.create<LinalgOp>(
-        loc, *resultTy, ValueRange{adaptor.getLhs(), adaptor.getRhs()},
-        ValueRange{zeroTensor}, linalg::getPrunedAttributeList(op));
+        loc, *resultTy, inputs, ValueRange{zeroTensor},
+        linalg::getPrunedAttributeList(op));
     rewriter.replaceOp(op, newAddOp.getResults());
 
     return success();
@@ -4557,8 +4574,8 @@ void populateHloToLinalgConversionPattern(MLIRContext* context,
       PointwiseToLinalgMapConverter<mhlo::AbsOp>,
       // PointwiseToLinalgMapConverter<mhlo::AbsOp>,
       // PointwiseToLinalgMapConverter<mhlo::AddOp>,
-      ElementWiseConverter<mhlo::AbsOp, linalg::AbsOp>,
-      ElementWiseConverter<mhlo::AddOp, linalg::AddOp>,
+      ElementWiseConverter<ElementwiseType::kUnary, mhlo::AbsOp, linalg::AbsOp>,
+      ElementWiseConverter<ElementwiseType::kBinary, mhlo::AddOp, linalg::AddOp>,
       PointwiseToLinalgMapConverter<mhlo::AndOp>,
       PointwiseToLinalgMapConverter<mhlo::Atan2Op>,
       PointwiseToLinalgMapConverter<mhlo::BitcastConvertOp>,
