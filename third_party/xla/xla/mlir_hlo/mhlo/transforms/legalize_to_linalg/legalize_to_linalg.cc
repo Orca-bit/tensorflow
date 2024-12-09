@@ -4326,7 +4326,7 @@ public:
 
     ValueRange inputs;
     if constexpr (OpType == ElementwiseType::kUnary) {
-      inputs = ValueRange{adaptor.getOprand()};
+      inputs = ValueRange{adaptor.getOperand()};
     } else if constexpr (OpType == ElementwiseType::kBinary) {
       inputs = ValueRange{adaptor.getLhs(), adaptor.getRhs()};
     } else {
