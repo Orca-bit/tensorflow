@@ -1419,8 +1419,9 @@ class ReshapeOpConverter : public OpConversionPattern<mhlo::ReshapeOp> {
                                             resultType.getShape().end());
         const auto attr = rewriter.getDenseI64ArrayAttr(resShape);
         const auto attrName = rewriter.getStringAttr("static_output_shape");
-        rewriter.replaceOpWithNewOp<tensor::ExpandShapeOp>(
-            reshapeOp, resultType, operand, ArrayRef{*reassociationMap},
+	rewriter.replaceOpWithNewOp<tensor::ExpandShapeOp>(
+            reshapeOp, resultType, operand,
+            ArrayRef{*reassociationMap->begin(), *reassociationMap->end()},
             ArrayRef{NamedAttribute{attrName, attr}});
       }
       return success();
