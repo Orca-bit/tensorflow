@@ -1415,8 +1415,13 @@ class ReshapeOpConverter : public OpConversionPattern<mhlo::ReshapeOp> {
             reshapeOp, resultType, operand, *reassociationMap);
       } else {
         // Generate expand operation.
+	const SmallVector<int64_t> resShape(resultType.getShape().begin(),
+                                            resultType.getShape().end());
+        const auto attr = rewriter.getDenseI64ArrayAttr(resShape);
+        const auto attrName = rewriter.getStringAttr("static_output_shape");
         rewriter.replaceOpWithNewOp<tensor::ExpandShapeOp>(
-            reshapeOp, resultType, operand, *reassociationMap);
+            reshapeOp, resultType, operand, ArrayRef{*reassociationMap},
+            ArrayRef{NamedAttribute{attrName, attr}});
       }
       return success();
     }
