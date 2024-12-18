@@ -4287,7 +4287,7 @@ enum class ElementwiseType {
 };
 
 /// convert `mhlo` elementwise op to `linalg` elementwise op
-template <ElementwiseType OpType, typename MhloOp, typename LinalgOp>
+template <ElementwiseType OpType, typename MhloOp, uint32_t LinalgOp>
 class ElementWiseConverter : public OpConversionPattern<MhloOp> {
 public:
   using OpConversionPattern<MhloOp>::OpConversionPattern;
@@ -4329,19 +4329,29 @@ public:
         getEmptyTensorFor(rewriter, loc, *resultTy, op, adaptor.getOperands());
     Value zeroTensor = fillTensorWithZeros(rewriter, loc, emptyTensor);
 
-    ValueRange inputs;
     if constexpr (OpType == ElementwiseType::kUnary) {
-      inputs = ValueRange{adaptor.getOperand()};
+      auto inputs = ValueRange{adaptor.getOperand()};
+      auto attrList = linalg::getPrunedAttributeList(op);
+      auto funAttrName = rewriter.getStringAttr("fun");
+      auto funType = linalg::UnaryFnAttr::get(rewriter.getContext(),
+                                              linalg::UnaryFn{LinalgOp});
+      attrList.emplace_back(NamedAttribute{funAttrName, funType});
+      auto newOp = rewriter.create<linalg::ElemwiseUnaryOp>(
+          loc, *resultTy, inputs, ValueRange{zeroTensor}, attrList);
+      rewriter.replaceOp(op, newOp.getResults());
     } else if constexpr (OpType == ElementwiseType::kBinary) {
-      inputs = ValueRange{adaptor.getLhs(), adaptor.getRhs()};
+      auto inputs = ValueRange{adaptor.getLhs(), adaptor.getRhs()};
+      auto attrList = linalg::getPrunedAttributeList(op);
+      auto funAttrName = rewriter.getStringAttr("fun");
+      auto funType = linalg::BinaryFnAttr::get(rewriter.getContext(),
+                                               linalg::BinaryFn{LinalgOp});
+      attrList.emplace_back(NamedAttribute{funAttrName, funType});
+      auto newOp = rewriter.create<linalg::ElemwiseBinaryOp>(
+          loc, *resultTy, inputs, ValueRange{zeroTensor}, attrList);
+      rewriter.replaceOp(op, newOp.getResults());
     } else {
       return failure();
     }
-
-    auto newAddOp = rewriter.create<LinalgOp>(
-        loc, *resultTy, inputs, ValueRange{zeroTensor},
-        linalg::getPrunedAttributeList(op));
-    rewriter.replaceOp(op, newAddOp.getResults());
 
     return success();
   }
@@ -4573,11 +4583,10 @@ void populateHloToLinalgConversionPattern(MLIRContext* context,
       IotaToMapConverter<mhlo::IotaOp>,
       IotaToMapConverter<mhlo::DynamicIotaOp>,
       MapOpToMapConverter,
-      PointwiseToLinalgMapConverter<mhlo::AbsOp>,
       // PointwiseToLinalgMapConverter<mhlo::AbsOp>,
       // PointwiseToLinalgMapConverter<mhlo::AddOp>,
-      ElementWiseConverter<ElementwiseType::kUnary, mhlo::AbsOp, linalg::AbsOp>,
-      ElementWiseConverter<ElementwiseType::kBinary, mhlo::AddOp, linalg::AddOp>,
+      ElementWiseConverter<ElementwiseType::kUnary, mhlo::AbsOp, static_cast<uint32_t>(linalg::UnaryFn::abs)>,
+      ElementWiseConverter<ElementwiseType::kBinary, mhlo::AddOp, static_cast<uint32_t>(linalg::BinaryFn::add)>,
       PointwiseToLinalgMapConverter<mhlo::AndOp>,
       PointwiseToLinalgMapConverter<mhlo::Atan2Op>,
       PointwiseToLinalgMapConverter<mhlo::BitcastConvertOp>,
@@ -4591,9 +4600,9 @@ void populateHloToLinalgConversionPattern(MLIRContext* context,
       PointwiseToLinalgMapConverter<mhlo::CopyOp>,
       PointwiseToLinalgMapConverter<mhlo::CosineOp>,
       // PointwiseToLinalgMapConverter<mhlo::DivOp>,
-      ElementWiseConverter<ElementwiseType::kBinary, mhlo::DivOp, linalg::DivOp>,
+      ElementWiseConverter<ElementwiseType::kBinary, mhlo::DivOp, static_cast<uint32_t>(linalg::BinaryFn::div)>,
       // PointwiseToLinalgMapConverter<mhlo::ExpOp>,
-      ElementWiseConverter<ElementwiseType::kUnary, mhlo::ExpOp, linalg::ExpOp>,
+      ElementWiseConverter<ElementwiseType::kUnary, mhlo::ExpOp, static_cast<uint32_t>(linalg::UnaryFn::exp)>,
       PointwiseToLinalgMapConverter<mhlo::Expm1Op>,
       PointwiseToLinalgMapConverter<mhlo::FloorOp>,
       PointwiseToLinalgMapConverter<mhlo::ImagOp>,
@@ -4602,12 +4611,13 @@ void populateHloToLinalgConversionPattern(MLIRContext* context,
       PointwiseToLinalgMapConverter<mhlo::LogOp>,
       PointwiseToLinalgMapConverter<mhlo::LogisticOp>,
       // PointwiseToLinalgMapConverter<mhlo::MaxOp>,
-      ElementWiseConverter<ElementwiseType::kBinary, mhlo::MaxOp, linalg::MaxOp>,
       PointwiseToLinalgMapConverter<mhlo::MinOp>,
+      ElementWiseConverter<ElementwiseType::kBinary, mhlo::MaxOp, static_cast<uint32_t>(linalg::BinaryFn::max_signed)>,
+      // ElementWiseConverter<ElementwiseType::kBinary, mhlo::MinOp, linalg::MinOp>,
       // PointwiseToLinalgMapConverter<mhlo::MulOp>,
-      ElementWiseConverter<ElementwiseType::kBinary, mhlo::MulOp, linalg::MulOp>,
+      ElementWiseConverter<ElementwiseType::kBinary, mhlo::MulOp, static_cast<uint32_t>(linalg::BinaryFn::mul)>,
       // PointwiseToLinalgMapConverter<mhlo::NegOp>,
-      ElementWiseConverter<ElementwiseType::kUnary, mhlo::NegOp, linalg::NegfOp>,
+      ElementWiseConverter<ElementwiseType::kUnary, mhlo::NegOp, static_cast<uint32_t>(linalg::UnaryFn::negf)>,
       PointwiseToLinalgMapConverter<mhlo::NotOp>,
       PointwiseToLinalgMapConverter<mhlo::OrOp>,
       PointwiseToLinalgMapConverter<mhlo::PopulationCountOp>,
@@ -4626,7 +4636,7 @@ void populateHloToLinalgConversionPattern(MLIRContext* context,
       PointwiseToLinalgMapConverter<mhlo::SineOp>,
       PointwiseToLinalgMapConverter<mhlo::SqrtOp>,
       // PointwiseToLinalgMapConverter<mhlo::SubtractOp>,
-      ElementWiseConverter<ElementwiseType::kBinary, mhlo::SubtractOp, linalg::SubOp>,
+      ElementWiseConverter<ElementwiseType::kBinary, mhlo::SubtractOp, static_cast<uint32_t>(linalg::BinaryFn::sub)>,
       PointwiseToLinalgMapConverter<mhlo::TanOp>,
       PointwiseToLinalgMapConverter<mhlo::TanhOp>,
       PointwiseToLinalgMapConverter<mhlo::XorOp>,
